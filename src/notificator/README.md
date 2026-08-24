@@ -1,4 +1,6 @@
 # Insights Planning: Notificator
+Service for sending monthly notifications.
+
 ## Local development
 Preparing local env is needed, use:
 ```shell
