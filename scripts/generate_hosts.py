@@ -94,16 +94,23 @@ def iter_hosts(path: Path) -> Iterator[dict]:  # noqa: C901
                     eof = True
                 continue
 
-            if not isinstance(host, dict) or "system_profile" not in host:
-                raise ValueError("each host must be an object containing 'system_profile'")
+            if not isinstance(host, dict):
+                raise ValueError("each host must be a JSON object")
             yield host
             state = "comma_or_end"
 
 
+def iter_hosts_with_profiles(path: Path) -> Iterator[dict]:
+    for host in iter_hosts(path):
+        system_profile = host.get("system_profile")
+        if isinstance(system_profile, dict) and system_profile:
+            yield host
+
+
 def count_hosts(path: Path) -> int:
-    count = sum(1 for _ in iter_hosts(path))
+    count = sum(1 for _ in iter_hosts_with_profiles(path))
     if count == 0:
-        raise ValueError("input contains no hosts")
+        raise ValueError("input contains no hosts with system profiles")
     return count
 
 
@@ -115,7 +122,7 @@ def generate_hosts(input_path: Path, output_path: Path, count: int) -> None:
     print(f"Found {source_count:,} source hosts. Generating {count:,} hosts...")
     with output_path.open("w", encoding="utf-8") as output:
         output.write("[\n")
-        for source_index, source_host in enumerate(iter_hosts(input_path)):
+        for source_index, source_host in enumerate(iter_hosts_with_profiles(input_path)):
             copies = copies_per_host + (source_index < hosts_with_extra_copy)
             for _ in range(copies):
                 host_id = str(uuid.uuid4())

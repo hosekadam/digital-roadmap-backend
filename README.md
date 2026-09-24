@@ -131,7 +131,8 @@ gzip --decompress --keep scratch/hosts-ORG_ID.json.gz
 
 Generate the required number of hosts from the source profiles. Each generated
 host receives a unique UUID and display name while retaining a source system
-profile. Profiles are reused when the requested count exceeds the source host
+profile. Source hosts with missing or empty system profiles are skipped.
+Profiles are reused when the requested count exceeds the usable source host
 count.
 
 ```shell
