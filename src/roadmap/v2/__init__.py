@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from roadmap.v1 import lifecycle
 from roadmap.v1 import upcoming
 
+from . import host_uuids
 from . import relevant_app_streams
 from . import relevant_rhel
 from . import relevant_upcoming
@@ -18,3 +19,6 @@ router.include_router(upcoming.router)
 router.include_router(relevant_rhel.relevant)
 router.include_router(relevant_app_streams.relevant)
 router.include_router(relevant_upcoming.relevant)
+
+# Host ids the caller may read, filtered by the same RBAC / Kessel check.
+router.include_router(host_uuids.router)
