@@ -17,7 +17,10 @@ from fastapi import Header
 from fastapi import HTTPException
 from fastapi import Query
 from fastapi.openapi.utils import get_openapi
+from sqlalchemy import bindparam
 from sqlalchemy import RowMapping
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncResult
@@ -342,6 +345,14 @@ _UNGROUPED_OR_GROUPED_FILTER = """
                 WHERE group_obj->>'id' = ANY(:host_groups)))
 """
 
+# Restricts the inventory read to an explicit set of host ids. The ids stay a
+# single bound uuid array (:host_ids); they are never written into the SQL.
+# An empty array matches no rows. This narrows the group filter. It does not
+# replace it.
+_HOST_IDS_FILTER = """
+     AND h.id = ANY(:host_ids)
+"""
+
 # Ids only. Callers that need the operating system, packages, or products use
 # the host queries above. This statement does not join the system profile
 # tables, so those large JSON columns are never read.
@@ -385,12 +396,17 @@ def _build_host_inventory_query(
     minor: int | None = None,
     host_groups: t.Collection[str | None] = (),
     include_packages: bool = True,
+    host_ids: t.Collection[UUID] | None = None,
 ) -> str:
     """Select the SQL used to read this org's hosts from the Hosts database.
 
     The statement is assembled by choosing among the literal fragments above
     based on which filters apply. No caller supplied value is interpolated into
     the SQL; they are all bound parameters.
+
+    host_ids None leaves the id filter off, which is the unscoped inventory
+    read. Any collection, including an empty one, adds the id filter. An empty
+    array matches no hosts.
 
     """
     if include_packages:
@@ -406,6 +422,9 @@ def _build_host_inventory_query(
 
     # Same group rules as the id-only query. See _host_groups_filter.
     statements.append(_host_groups_filter(host_groups))
+
+    if host_ids is not None:
+        statements.append(_HOST_IDS_FILTER)
 
     return "".join(statements)
 
@@ -497,6 +516,46 @@ query_host_inventory = host_inventory_query()
 
 # Slim: for callers that only need the OS version and the installed products.
 query_host_inventory_without_packages = host_inventory_query(include_packages=False)
+
+
+async def query_host_inventory_by_ids(
+    org_id: str,
+    session: AsyncSession,
+    settings: Settings,
+    host_groups: t.Collection[str | None],
+    host_ids: t.Collection[UUID],
+) -> AsyncResult[t.Any]:
+    """Read inventory rows for these host ids, still limited to permitted groups.
+
+    host_groups comes from get_allowed_host_groups (RBAC v1 or Kessel). An empty
+    set means the caller may read every host in the org. The id list narrows
+    that set further. A requested id in another org, or outside the permitted
+    groups, is not returned. Duplicate ids are ignored.
+
+    The id list is one bound uuid array, including when it contains thousands
+    of values. In dev mode the query reads the local fixture org.
+    """
+    if settings.dev:
+        org_id = "1234"
+
+    unique_host_ids = list(dict.fromkeys(host_ids))
+    query = _build_host_inventory_query(host_groups=host_groups, host_ids=unique_host_ids)
+    statement = text(textwrap.dedent(query)).bindparams(bindparam("host_ids", type_=ARRAY(PG_UUID(as_uuid=True))))
+
+    try:
+        return await session.stream(
+            statement,
+            params={
+                "org_id": org_id,
+                "major": None,
+                "minor": None,
+                "host_groups": list(host_groups),
+                "host_ids": unique_host_ids,
+            },
+        )
+    except (DBAPIError, SQLAlchemyError) as err:
+        logger.error(f"Database error querying host inventory for org_id {org_id}: {err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error querying host inventory")
 
 
 async def query_accessible_host_uuids(
