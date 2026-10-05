@@ -9,7 +9,7 @@ from roadmap.common import get_allowed_host_groups
 from roadmap.common import query_host_inventory_by_ids
 from roadmap.config import Settings
 from roadmap.database import get_db
-from roadmap.v1.lifecycle.relevant_app_streams_hosts import HostIdsRequest
+from roadmap.models import HostIdsRequest
 from roadmap.v1.lifecycle.rhel import relevant_systems
 from roadmap.v1.lifecycle.rhel import RelevantSystemsResponse
 

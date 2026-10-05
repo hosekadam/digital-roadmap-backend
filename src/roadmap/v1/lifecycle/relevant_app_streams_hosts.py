@@ -1,12 +1,7 @@
 import typing as t
 
-from uuid import UUID
-
 from fastapi import APIRouter
 from fastapi import Depends
-from pydantic import BaseModel
-from pydantic import Field
-from sqlalchemy.ext.asyncio import AsyncResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from roadmap.common import decode_header
@@ -14,33 +9,16 @@ from roadmap.common import get_allowed_host_groups
 from roadmap.common import query_host_inventory_by_ids
 from roadmap.config import Settings
 from roadmap.database import get_db
-from roadmap.v1.lifecycle.app_streams import get_relevant_app_streams
+from roadmap.models import HostIdsRequest
+from roadmap.v1.lifecycle.app_streams import build_relevant_app_streams
 from roadmap.v1.lifecycle.app_streams import RelevantAppStreamsResponse
 from roadmap.v1.lifecycle.app_streams import systems_by_app_stream
-
-
-class HostIdsRequest(BaseModel):
-    """Host ids to read. The caller must also be permitted to see them."""
-
-    host_ids: list[UUID] = Field(min_length=1, max_length=10_000)
 
 
 router = APIRouter(
     prefix="/relevant/lifecycle/app-streams",
     tags=["Relevant", "App Streams"],
 )
-
-
-async def _relevant_for_hosts(org_id: str, systems: AsyncResult, related: bool):
-    """Return the v1 relevant-app-streams payload for these inventory rows.
-
-    Switching this endpoint to the v2 counts implementation is a local change:
-    call system_counts_by_app_stream and get_relevant_app_streams_v2, and set
-    the route response_model to RelevantAppStreamsResponseV2. The inventory
-    query stays the same.
-    """
-    systems_by_stream = await systems_by_app_stream(org_id, systems)
-    return await get_relevant_app_streams(systems_by_stream, related)
 
 
 @router.post(
@@ -69,4 +47,5 @@ async def get_relevant_app_streams_for_hosts(
         host_groups=host_groups,
         host_ids=body.host_ids,
     )
-    return await _relevant_for_hosts(org_id, systems, related)
+    systems_by_stream = await systems_by_app_stream(org_id, systems)
+    return build_relevant_app_streams(systems_by_stream, related)

@@ -656,15 +656,11 @@ relevant = APIRouter(
 )
 
 
-@relevant.get(
-    "",
-    summary="App streams based on hosts in inventory",
-    response_model=RelevantAppStreamsResponse,
-)
-async def get_relevant_app_streams(
-    systems_by_stream: t.Annotated[dict[AppStreamKey, set[SystemInfo]], Depends(systems_by_app_stream)],
-    related: bool = False,
+def build_relevant_app_streams(
+    systems_by_stream: dict[AppStreamKey, set[SystemInfo]],
+    related: bool,
 ):
+    """Fold a systems-by-stream mapping into the relevant app streams payload."""
     relevant_app_streams = []
     for app_stream, systems in systems_by_stream.items():
         # Omit rolling app streams.
@@ -724,3 +720,15 @@ async def get_relevant_app_streams(
         },
         "data": sorted(relevant_app_streams, key=sort_attrs("name", "os_major", "os_minor")),
     }
+
+
+@relevant.get(
+    "",
+    summary="App streams based on hosts in inventory",
+    response_model=RelevantAppStreamsResponse,
+)
+async def get_relevant_app_streams(
+    systems_by_stream: t.Annotated[dict[AppStreamKey, set[SystemInfo]], Depends(systems_by_app_stream)],
+    related: bool = False,
+):
+    return build_relevant_app_streams(systems_by_stream, related)
