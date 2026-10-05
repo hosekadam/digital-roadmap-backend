@@ -137,17 +137,13 @@ relevant = APIRouter(
 )
 
 
-@relevant.get(
-    "",
-    summary="RHEL lifecycle dates for systems in inventory",
-)
-async def get_relevant_systems(  # noqa: C901
-    org_id: t.Annotated[str, Depends(decode_header)],
-    # This endpoint only needs the OS version and the installed products, so it
-    # queries without the installed packages and dnf modules columns.
-    systems: t.Annotated[t.Any, Depends(query_host_inventory_without_packages)],
-    related: bool = False,
-) -> RelevantSystemsResponse:
+async def relevant_systems(org_id: str, systems: t.Any, related: bool) -> RelevantSystemsResponse:  # noqa: C901
+    """Build the relevant-RHEL payload from inventory rows already read.
+
+    Callers choose which rows: the unscoped endpoint streams every permitted
+    host, and the host-id endpoint streams only the requested ids. Both pass
+    the result here so the counts, lifecycle dates, and related versions match.
+    """
     system_counts = defaultdict(int)
     missing = defaultdict(int)
     systems_by_version_lifecycle = defaultdict(set)
@@ -251,3 +247,17 @@ async def get_relevant_systems(  # noqa: C901
         meta=Meta(total=sum(system.count for system in results), count=len(results)),
         data=sorted(results, key=sort_attrs("lifecycle_type", "major", "minor"), reverse=True),
     )
+
+
+@relevant.get(
+    "",
+    summary="RHEL lifecycle dates for systems in inventory",
+)
+async def get_relevant_systems(
+    org_id: t.Annotated[str, Depends(decode_header)],
+    # This endpoint only needs the OS version and the installed products, so it
+    # queries without the installed packages and dnf modules columns.
+    systems: t.Annotated[t.Any, Depends(query_host_inventory_without_packages)],
+    related: bool = False,
+) -> RelevantSystemsResponse:
+    return await relevant_systems(org_id, systems, related)

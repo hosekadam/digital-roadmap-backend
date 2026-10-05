@@ -192,6 +192,18 @@ def test_build_host_inventory_query_host_ids_are_bound():
     assert "installed_packages" in query
 
 
+def test_build_host_inventory_query_host_ids_without_packages():
+    """An id-scoped slim query keeps products and drops the package columns."""
+    host_id = UUID("a77a8458-3593-11f0-8426-5e43c8b8aa2f")
+    query = _build_host_inventory_query(host_ids=[host_id], include_packages=False)
+
+    assert ":host_ids" in query
+    assert str(host_id) not in query
+    assert "installed_products" in query
+    assert "installed_packages" not in query
+    assert "dnf_modules" not in query
+
+
 def test_build_host_inventory_query_empty_host_ids_still_filters():
     """An empty id list matches no hosts. It does not fall back to every host."""
     query = _build_host_inventory_query(host_ids=[])

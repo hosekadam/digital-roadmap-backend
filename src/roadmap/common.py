@@ -524,6 +524,7 @@ async def query_host_inventory_by_ids(
     settings: Settings,
     host_groups: t.Collection[str | None],
     host_ids: t.Collection[UUID],
+    include_packages: bool = True,
 ) -> AsyncResult[t.Any]:
     """Read inventory rows for these host ids, still limited to permitted groups.
 
@@ -534,12 +535,19 @@ async def query_host_inventory_by_ids(
 
     The id list is one bound uuid array, including when it contains thousands
     of values. In dev mode the query reads the local fixture org.
+
+    Pass include_packages=False for callers that only need the OS version and
+    the installed products. The default keeps packages and dnf modules.
     """
     if settings.dev:
         org_id = "1234"
 
     unique_host_ids = list(dict.fromkeys(host_ids))
-    query = _build_host_inventory_query(host_groups=host_groups, host_ids=unique_host_ids)
+    query = _build_host_inventory_query(
+        host_groups=host_groups,
+        host_ids=unique_host_ids,
+        include_packages=include_packages,
+    )
     statement = text(textwrap.dedent(query)).bindparams(bindparam("host_ids", type_=ARRAY(PG_UUID(as_uuid=True))))
 
     try:
