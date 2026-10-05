@@ -16,7 +16,7 @@ logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter(
     prefix="/lifecycle",
-    tags=["Lifecycle", "v2"],
+    tags=["Lifecycle"],
 )
 
 

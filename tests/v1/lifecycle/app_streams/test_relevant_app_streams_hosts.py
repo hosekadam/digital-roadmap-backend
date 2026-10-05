@@ -29,9 +29,9 @@ def _allow(client, host_groups, org_id="1234"):
     client.app.dependency_overrides[decode_header] = decode_header_override
 
 
-def _post(client, v2_prefix, host_ids, related=False):
+def _post(client, api_prefix, host_ids, related=False):
     return client.post(
-        f"{v2_prefix}/relevant/lifecycle/app-streams/hosts",
+        f"{api_prefix}/relevant/lifecycle/app-streams/hosts",
         json={"host_ids": list(host_ids)},
         params={"related": related},
     )
@@ -57,13 +57,13 @@ def _stream_identity(item):
     )
 
 
-def test_relevant_app_streams_for_all_hosts_matches_v1(v1_prefix, v2_prefix, client, read_json_fixture):
+def test_relevant_app_streams_for_all_hosts_matches_v1(api_prefix, client, read_json_fixture):
     """Every fixture host produces the same payload as the unscoped v1 endpoint."""
     _allow(client, set())
     host_ids = [host["id"] for host in read_json_fixture("inventory_db_response.json.gz")]
 
-    scoped = _post(client, v2_prefix, host_ids)
-    unscoped = client.get(f"{v1_prefix}/relevant/lifecycle/app-streams")
+    scoped = _post(client, api_prefix, host_ids)
+    unscoped = client.get(f"{api_prefix}/relevant/lifecycle/app-streams")
 
     assert scoped.status_code == 200, scoped.text
     assert unscoped.status_code == 200, unscoped.text
@@ -87,14 +87,14 @@ def test_relevant_app_streams_for_all_hosts_matches_v1(v1_prefix, v2_prefix, cli
     assert sorted(map(_stream_identity, data)) == sorted(map(_stream_identity, unscoped_body["data"]))
 
 
-def test_relevant_app_streams_for_ungrouped_host(v2_prefix, client):
+def test_relevant_app_streams_for_ungrouped_host(api_prefix, client):
     """
     The ungrouped host has Node.js 18 installed, plus related streams
     (Node.js 20, 22, 24, and so on) when related results are requested.
     """
     _allow(client, {None})
 
-    result = _post(client, v2_prefix, [UNGROUPED_HOST], related=True)
+    result = _post(client, api_prefix, [UNGROUPED_HOST], related=True)
     data = result.json()["data"]
 
     assert result.status_code == 200, result.text
@@ -111,7 +111,7 @@ def test_relevant_app_streams_for_ungrouped_host(v2_prefix, client):
     assert all(item["systems"] == [] for item in related)
 
 
-def test_relevant_app_streams_for_one_grouped_host(v2_prefix, client):
+def test_relevant_app_streams_for_one_grouped_host(api_prefix, client):
     """A single requested host is the only inventory the response is built from.
 
     Group access is unrestricted, so the missing Node.js host is excluded by
@@ -119,7 +119,7 @@ def test_relevant_app_streams_for_one_grouped_host(v2_prefix, client):
     """
     _allow(client, set())
 
-    result = _post(client, v2_prefix, [GROUP_ONE_HOST])
+    result = _post(client, api_prefix, [GROUP_ONE_HOST])
     data = result.json()["data"]
 
     assert result.status_code == 200, result.text
@@ -129,11 +129,11 @@ def test_relevant_app_streams_for_one_grouped_host(v2_prefix, client):
     assert "Node.js 18" not in {item["display_name"] for item in data}
 
 
-def test_relevant_app_streams_for_ungrouped_and_grouped_hosts(v2_prefix, client):
+def test_relevant_app_streams_for_ungrouped_and_grouped_hosts(api_prefix, client):
     """Both permitted hosts, matching the v1 combined group-permission result."""
     _allow(client, {None, GROUP_ONE})
 
-    result = _post(client, v2_prefix, [UNGROUPED_HOST, GROUP_ONE_HOST], related=True)
+    result = _post(client, api_prefix, [UNGROUPED_HOST, GROUP_ONE_HOST], related=True)
     data = result.json()["data"]
 
     assert result.status_code == 200, result.text
@@ -147,11 +147,11 @@ def test_relevant_app_streams_for_ungrouped_and_grouped_hosts(v2_prefix, client)
     assert systems == {UNGROUPED_HOST, GROUP_ONE_HOST}
 
 
-def test_relevant_app_streams_omits_hosts_outside_allowed_groups(v2_prefix, client):
+def test_relevant_app_streams_omits_hosts_outside_allowed_groups(api_prefix, client):
     """A requested id the caller cannot read is left out of the inventory result."""
     _allow(client, {None})
 
-    result = _post(client, v2_prefix, [UNGROUPED_HOST, GROUP_ONE_HOST], related=True)
+    result = _post(client, api_prefix, [UNGROUPED_HOST, GROUP_ONE_HOST], related=True)
     data = result.json()["data"]
 
     assert result.status_code == 200, result.text
@@ -166,11 +166,11 @@ def test_relevant_app_streams_omits_hosts_outside_allowed_groups(v2_prefix, clie
     assert "Node.js 20" in related_names or "Node.js 22" in related_names
 
 
-def test_relevant_app_streams_ignores_unknown_host_id(v2_prefix, client):
+def test_relevant_app_streams_ignores_unknown_host_id(api_prefix, client):
     """An id that is not in inventory does not change the streams of a real host."""
     _allow(client, {None})
 
-    result = _post(client, v2_prefix, [UNGROUPED_HOST, UNKNOWN_HOST])
+    result = _post(client, api_prefix, [UNGROUPED_HOST, UNKNOWN_HOST])
     data = result.json()["data"]
 
     assert result.status_code == 200, result.text
@@ -180,11 +180,11 @@ def test_relevant_app_streams_ignores_unknown_host_id(v2_prefix, client):
     assert set(installed[0]["systems"]) == {UNGROUPED_HOST}
 
 
-def test_relevant_app_streams_duplicate_host_ids_count_once(v2_prefix, client):
+def test_relevant_app_streams_duplicate_host_ids_count_once(api_prefix, client):
     """Repeating a host id does not count that host twice."""
     _allow(client, {None})
 
-    result = _post(client, v2_prefix, [UNGROUPED_HOST, UNGROUPED_HOST])
+    result = _post(client, api_prefix, [UNGROUPED_HOST, UNGROUPED_HOST])
     data = result.json()["data"]
 
     assert result.status_code == 200, result.text
@@ -195,45 +195,45 @@ def test_relevant_app_streams_duplicate_host_ids_count_once(v2_prefix, client):
     assert installed[0]["systems"] == [UNGROUPED_HOST]
 
 
-def test_relevant_app_streams_for_hosts_no_rbac_access(v2_prefix, client):
+def test_relevant_app_streams_for_hosts_no_rbac_access(api_prefix, client):
     async def get_allowed_host_groups_override():
         raise HTTPException(status_code=403, detail="Not authorized to access host inventory")
 
     client.app.dependency_overrides = {}
     client.app.dependency_overrides[get_allowed_host_groups] = get_allowed_host_groups_override
 
-    result = _post(client, v2_prefix, [UNGROUPED_HOST])
+    result = _post(client, api_prefix, [UNGROUPED_HOST])
 
     assert result.status_code == 403
 
 
-def test_relevant_app_streams_for_hosts_error_building_response(v2_prefix, client, mocker):
+def test_relevant_app_streams_for_hosts_error_building_response(api_prefix, client, mocker):
     _allow(client, {None})
     mocker.patch("roadmap.v1.lifecycle.app_streams.RelevantAppStream", side_effect=ValueError("Raised intentionally"))
 
-    result = _post(client, v2_prefix, [UNGROUPED_HOST])
+    result = _post(client, api_prefix, [UNGROUPED_HOST])
 
     assert result.status_code == 400
     assert result.json().get("detail") == "Raised intentionally"
 
 
-def test_relevant_app_streams_for_hosts_rejects_empty_list(v2_prefix, client):
+def test_relevant_app_streams_for_hosts_rejects_empty_list(api_prefix, client):
     _allow(client, set())
 
     result = client.post(
-        f"{v2_prefix}/relevant/lifecycle/app-streams/hosts",
+        f"{api_prefix}/relevant/lifecycle/app-streams/hosts",
         json={"host_ids": []},
     )
 
     assert result.status_code == 422
 
 
-def test_relevant_app_streams_for_hosts_rejects_more_than_10k_ids(v2_prefix, client):
+def test_relevant_app_streams_for_hosts_rejects_more_than_10k_ids(api_prefix, client):
     _allow(client, set())
     host_ids = [str(uuid4()) for _ in range(10_001)]
 
     result = client.post(
-        f"{v2_prefix}/relevant/lifecycle/app-streams/hosts",
+        f"{api_prefix}/relevant/lifecycle/app-streams/hosts",
         json={"host_ids": host_ids},
     )
 

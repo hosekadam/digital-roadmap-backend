@@ -75,11 +75,11 @@ def test_build_host_uuids_query_host_group_filters(host_groups, expected):
     assert "installed_packages" not in query
 
 
-def test_accessible_host_uuids_unrestricted(v2_prefix, client, read_json_fixture):
+def test_accessible_host_uuids_unrestricted(api_prefix, client, read_json_fixture):
     """An empty group set is unrestricted access: every host in the org."""
     _allow(client, set())
 
-    result = client.get(f"{v2_prefix}/lifecycle/host_uuids")
+    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
     body = result.json()
     uuids = body["accessible_host_uuids"]
 
@@ -89,19 +89,19 @@ def test_accessible_host_uuids_unrestricted(v2_prefix, client, read_json_fixture
     assert len(uuids) == len(set(uuids)), "Found duplicate host UUIDs"
 
 
-def test_accessible_host_uuids_no_rbac_access(v2_prefix, client):
+def test_accessible_host_uuids_no_rbac_access(api_prefix, client):
     async def get_allowed_host_groups_override():
         raise HTTPException(status_code=403, detail="Not authorized to access host inventory")
 
     client.app.dependency_overrides = {}
     client.app.dependency_overrides[get_allowed_host_groups] = get_allowed_host_groups_override
 
-    result = client.get(f"{v2_prefix}/lifecycle/host_uuids")
+    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
 
     assert result.status_code == 403
 
 
-def test_accessible_host_uuids_rbac_error(v2_prefix, client, mocker):
+def test_accessible_host_uuids_rbac_error(api_prefix, client, mocker):
     """A failing RBAC call is returned to the client. Dev mode is off, so the check runs."""
 
     def settings_override():
@@ -122,13 +122,13 @@ def test_accessible_host_uuids_rbac_error(v2_prefix, client, mocker):
     client.app.dependency_overrides = {}
     client.app.dependency_overrides[Settings.create] = settings_override
 
-    result = client.get(f"{v2_prefix}/lifecycle/host_uuids")
+    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
 
     assert result.status_code == 400
     mock_client.get.assert_awaited()
 
 
-def test_accessible_host_uuids_dev_mode_skips_rbac(v2_prefix, client, mocker, read_json_fixture):
+def test_accessible_host_uuids_dev_mode_skips_rbac(api_prefix, client, mocker, read_json_fixture):
     """Dev mode does not call RBAC and still lists the fixture org's hosts."""
 
     def settings_override():
@@ -139,18 +139,18 @@ def test_accessible_host_uuids_dev_mode_skips_rbac(v2_prefix, client, mocker, re
     client.app.dependency_overrides = {}
     client.app.dependency_overrides[Settings.create] = settings_override
 
-    result = client.get(f"{v2_prefix}/lifecycle/host_uuids")
+    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
     uuids = result.json()["accessible_host_uuids"]
 
     assert result.status_code == 200
     assert set(uuids) == _fixture_host_ids(read_json_fixture)
 
 
-def test_accessible_host_uuids_single_group(v2_prefix, client):
+def test_accessible_host_uuids_single_group(api_prefix, client):
     """A caller limited to one group receives only the hosts in that group."""
     _allow(client, {GROUP_ONE})
 
-    result = client.get(f"{v2_prefix}/lifecycle/host_uuids")
+    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
     uuids = set(result.json()["accessible_host_uuids"])
 
     assert result.status_code == 200
@@ -159,35 +159,35 @@ def test_accessible_host_uuids_single_group(v2_prefix, client):
     assert UNGROUPED_HOST not in uuids
 
 
-def test_accessible_host_uuids_unknown_group(v2_prefix, client):
+def test_accessible_host_uuids_unknown_group(api_prefix, client):
     """A group id that no fixture host belongs to yields an empty list."""
     _allow(client, {UNKNOWN_GROUP})
 
-    result = client.get(f"{v2_prefix}/lifecycle/host_uuids")
+    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
 
     assert result.status_code == 200
     assert result.json()["accessible_host_uuids"] == []
 
 
-def test_accessible_host_uuids_ungrouped(v2_prefix, client):
+def test_accessible_host_uuids_ungrouped(api_prefix, client):
     """
     Given a group with value None, which means "ungrouped", assert that only
     the host which belongs to the "ungrouped" group is returned.
     """
     _allow(client, {None})
 
-    result = client.get(f"{v2_prefix}/lifecycle/host_uuids")
+    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
     uuids = set(result.json()["accessible_host_uuids"])
 
     assert result.status_code == 200
     assert uuids == {UNGROUPED_HOST}
 
 
-def test_accessible_host_uuids_ungrouped_and_grouped(v2_prefix, client):
+def test_accessible_host_uuids_ungrouped_and_grouped(api_prefix, client):
     """None means 'ungrouped', and is combined with a real group id."""
     _allow(client, {None, GROUP_ONE})
 
-    result = client.get(f"{v2_prefix}/lifecycle/host_uuids")
+    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
     uuids = set(result.json()["accessible_host_uuids"])
 
     assert result.status_code == 200

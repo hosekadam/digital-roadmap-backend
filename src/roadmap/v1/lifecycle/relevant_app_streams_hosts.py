@@ -27,7 +27,7 @@ class HostIdsRequest(BaseModel):
 
 router = APIRouter(
     prefix="/relevant/lifecycle/app-streams",
-    tags=["Relevant", "App Streams", "v2"],
+    tags=["Relevant", "App Streams"],
 )
 
 
