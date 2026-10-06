@@ -1,11 +1,14 @@
 from datetime import date
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 from fastapi import HTTPException
+from sqlalchemy.exc import DBAPIError
 
 from roadmap.common import decode_header
 from roadmap.common import get_allowed_host_groups
 from roadmap.data.systems import OS_LIFECYCLE_DATES
+from roadmap.database import get_db
 from roadmap.models import SupportStatus
 
 
@@ -301,6 +304,19 @@ def test_relevant_rhel_for_hosts_no_rbac_access(api_prefix, client):
     result = _post(client, api_prefix, [ELS_HOST])
 
     assert result.status_code == 403
+
+
+def test_relevant_rhel_for_hosts_database_error(api_prefix, client):
+    _allow(client, set())
+    session = AsyncMock()
+    session.stream.side_effect = DBAPIError("Database connection timeout", None, None)
+    client.app.dependency_overrides[get_db] = lambda: session
+
+    result = _post(client, api_prefix, [ELS_HOST])
+
+    assert result.status_code == 500
+    assert result.json() == {"detail": "Error querying host inventory"}
+    session.stream.assert_awaited_once()
 
 
 def test_relevant_rhel_for_hosts_rejects_empty_list(api_prefix, client):

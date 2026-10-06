@@ -499,8 +499,8 @@ def host_inventory_query(include_packages: bool = True) -> t.Callable[..., Async
                 },
             )
             yield result
-        except (DBAPIError, SQLAlchemyError) as err:
-            logger.error(f"Database error querying host inventory for org_id {org_id}: {err}", exc_info=True)
+        except (DBAPIError, SQLAlchemyError):
+            logger.error("Database error querying host inventory", extra={"error_type": "db_query_failure"})
             raise HTTPException(status_code=500, detail="Error querying host inventory")
 
     return query_host_inventory
@@ -561,8 +561,8 @@ async def query_host_inventory_by_ids(
                 "host_ids": unique_host_ids,
             },
         )
-    except (DBAPIError, SQLAlchemyError) as err:
-        logger.error(f"Database error querying host inventory for org_id {org_id}: {err}", exc_info=True)
+    except (DBAPIError, SQLAlchemyError):
+        logger.error("Database error querying host inventory", extra={"error_type": "db_query_failure"})
         raise HTTPException(status_code=500, detail="Error querying host inventory")
 
 
@@ -598,8 +598,8 @@ async def query_accessible_host_uuids(
             },
         )
         yield result
-    except (DBAPIError, SQLAlchemyError) as err:
-        logger.error(f"Database error listing host UUIDs for org_id {org_id}: {err}", exc_info=True)
+    except (DBAPIError, SQLAlchemyError):
+        logger.error("Database error listing host UUIDs", extra={"error_type": "db_query_failure"})
         raise HTTPException(status_code=500, detail="Error querying host inventory")
 
 

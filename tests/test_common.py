@@ -22,6 +22,7 @@ from roadmap.common import ensure_date
 from roadmap.common import get_allowed_host_groups
 from roadmap.common import get_lifecycle_type
 from roadmap.common import query_host_inventory
+from roadmap.common import query_host_inventory_by_ids
 from roadmap.common import query_host_inventory_without_packages
 from roadmap.common import query_rbac
 from roadmap.common import rhel_major_minor
@@ -130,6 +131,33 @@ async def test_query_host_inventory_database_error(base_args, mocker):
 
     with pytest.raises(HTTPException, match="Error querying host inventory"):
         await anext(query_host_inventory(**base_args))
+
+
+@pytest.mark.parametrize("include_packages", (True, False))
+async def test_query_host_inventory_by_ids_database_error(include_packages, caplog):
+    """Both host-scoped query forms return a safe 500 when inventory is unavailable."""
+    host_id = UUID("a77a8458-3593-11f0-8426-5e43c8b8aa2f")
+    session = AsyncMock()
+    session.stream.side_effect = DBAPIError("query with sensitive host id", None, None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await query_host_inventory_by_ids(
+            org_id="sensitive-org",
+            session=session,
+            settings=Settings(dev=False),
+            host_groups=set(),
+            host_ids=[host_id],
+            include_packages=include_packages,
+        )
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "Error querying host inventory"
+    assert session.stream.await_count == 1
+    record = next(record for record in caplog.records if record.message == "Database error querying host inventory")
+    assert record.error_type == "db_query_failure"
+    assert record.exc_info is None
+    assert "sensitive-org" not in caplog.text
+    assert "sensitive host id" not in caplog.text
 
 
 def test_build_host_inventory_query_includes_packages_by_default():

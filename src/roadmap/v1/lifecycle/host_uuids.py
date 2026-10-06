@@ -8,7 +8,6 @@ from fastapi import Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncResult
 
-from roadmap.common import decode_header
 from roadmap.common import query_accessible_host_uuids
 
 
@@ -32,7 +31,6 @@ class AccessibleHostUuidsResponse(BaseModel):
     response_model=AccessibleHostUuidsResponse,
 )
 async def get_accessible_host_uuids(
-    org_id: t.Annotated[str, Depends(decode_header)],
     hosts: t.Annotated[AsyncResult[t.Any], Depends(query_accessible_host_uuids)],
 ) -> AccessibleHostUuidsResponse:
     """Return every host UUID this user can access.
@@ -41,7 +39,7 @@ async def get_accessible_host_uuids(
     which host groups are visible, and dev mode skips that remote check.
     The query itself only reads host ids.
     """
-    logger.info(f"Listing accessible host UUIDs for {org_id or 'UNKNOWN'}")
+    logger.info("Listing accessible host UUIDs")
 
     # The stream yields one row per host, and each row is just the id.
     uuids = [row["id"] async for row in hosts.mappings()]

@@ -75,9 +75,10 @@ def test_build_host_uuids_query_host_group_filters(host_groups, expected):
     assert "installed_packages" not in query
 
 
-def test_accessible_host_uuids_unrestricted(api_prefix, client, read_json_fixture):
+def test_accessible_host_uuids_unrestricted(api_prefix, client, read_json_fixture, mocker):
     """An empty group set is unrestricted access: every host in the org."""
     _allow(client, set())
+    log_info = mocker.patch("roadmap.v1.lifecycle.host_uuids.logger.info")
 
     result = client.get(f"{api_prefix}/lifecycle/host_uuids")
     body = result.json()
@@ -87,6 +88,7 @@ def test_accessible_host_uuids_unrestricted(api_prefix, client, read_json_fixtur
     assert set(body) == {"accessible_host_uuids"}
     assert set(uuids) == _fixture_host_ids(read_json_fixture)
     assert len(uuids) == len(set(uuids)), "Found duplicate host UUIDs"
+    log_info.assert_called_once_with("Listing accessible host UUIDs")
 
 
 def test_accessible_host_uuids_no_rbac_access(api_prefix, client):
@@ -195,15 +197,15 @@ def test_accessible_host_uuids_ungrouped_and_grouped(api_prefix, client):
     assert GROUP_TWO_HOST not in uuids
 
 
-async def test_query_accessible_host_uuids_database_error():
+async def test_query_accessible_host_uuids_database_error(caplog):
     """A database failure while listing ids becomes a 500."""
     session = AsyncMock()
-    session.stream = AsyncMock(side_effect=DBAPIError("Database connection timeout", None, None))
+    session.stream = AsyncMock(side_effect=DBAPIError("sensitive host id", None, None))
 
     with pytest.raises(HTTPException, match="Error querying host inventory") as exc_info:
         await anext(
             query_accessible_host_uuids(
-                org_id="1234",
+                org_id="sensitive-org",
                 session=session,
                 settings=Settings(dev=False),
                 host_groups=set(),
@@ -211,3 +213,8 @@ async def test_query_accessible_host_uuids_database_error():
         )
 
     assert exc_info.value.status_code == 500
+    record = next(record for record in caplog.records if record.message == "Database error listing host UUIDs")
+    assert record.error_type == "db_query_failure"
+    assert record.exc_info is None
+    assert "sensitive-org" not in caplog.text
+    assert "sensitive host id" not in caplog.text
