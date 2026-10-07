@@ -82,15 +82,20 @@ def test_accessible_host_uuids_unrestricted(api_prefix, client, read_json_fixtur
     _allow(client, set())
     log_info = mocker.patch("roadmap.v1.lifecycle.host_uuids.logger.info")
 
-    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
+    result = client.get(f"{api_prefix}/lifecycle/host-uuids")
     body = result.json()
-    uuids = body["accessible_host_uuids"]
+    uuids = body["data"]
 
     assert result.status_code == 200
-    assert set(body) == {"accessible_host_uuids"}
+    assert set(body) == {"meta", "data"}
+    assert body["meta"] == {"count": len(uuids), "total": len(uuids)}
     assert set(uuids) == _fixture_host_ids(read_json_fixture)
     assert len(uuids) == len(set(uuids)), "Found duplicate host UUIDs"
     log_info.assert_called_once_with("Listing accessible host UUIDs")
+
+
+def test_old_host_uuids_route_is_not_available(api_prefix, client):
+    assert client.get(f"{api_prefix}/lifecycle/host_uuids").status_code == 404
 
 
 def test_accessible_host_uuids_no_rbac_access(api_prefix, client):
@@ -100,7 +105,7 @@ def test_accessible_host_uuids_no_rbac_access(api_prefix, client):
     client.app.dependency_overrides = {}
     client.app.dependency_overrides[get_allowed_host_groups] = get_allowed_host_groups_override
 
-    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
+    result = client.get(f"{api_prefix}/lifecycle/host-uuids")
 
     assert result.status_code == 403
 
@@ -126,7 +131,7 @@ def test_accessible_host_uuids_rbac_error(api_prefix, client, mocker):
     client.app.dependency_overrides = {}
     client.app.dependency_overrides[Settings.create] = settings_override
 
-    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
+    result = client.get(f"{api_prefix}/lifecycle/host-uuids")
 
     assert result.status_code == 400
     mock_client.get.assert_awaited()
@@ -143,8 +148,8 @@ def test_accessible_host_uuids_dev_mode_skips_rbac(api_prefix, client, mocker, r
     client.app.dependency_overrides = {}
     client.app.dependency_overrides[Settings.create] = settings_override
 
-    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
-    uuids = result.json()["accessible_host_uuids"]
+    result = client.get(f"{api_prefix}/lifecycle/host-uuids")
+    uuids = result.json()["data"]
 
     assert result.status_code == 200
     assert set(uuids) == _fixture_host_ids(read_json_fixture)
@@ -154,8 +159,8 @@ def test_accessible_host_uuids_single_group(api_prefix, client):
     """A caller limited to one group receives only the hosts in that group."""
     _allow(client, {GROUP_ONE})
 
-    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
-    uuids = set(result.json()["accessible_host_uuids"])
+    result = client.get(f"{api_prefix}/lifecycle/host-uuids")
+    uuids = set(result.json()["data"])
 
     assert result.status_code == 200
     assert uuids == {GROUP_ONE_HOST}
@@ -167,10 +172,10 @@ def test_accessible_host_uuids_unknown_group(api_prefix, client):
     """A group id that no fixture host belongs to yields an empty list."""
     _allow(client, {UNKNOWN_GROUP})
 
-    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
+    result = client.get(f"{api_prefix}/lifecycle/host-uuids")
 
     assert result.status_code == 200
-    assert result.json()["accessible_host_uuids"] == []
+    assert result.json() == {"meta": {"count": 0, "total": 0}, "data": []}
 
 
 def test_accessible_host_uuids_ungrouped(api_prefix, client):
@@ -180,8 +185,8 @@ def test_accessible_host_uuids_ungrouped(api_prefix, client):
     """
     _allow(client, {None})
 
-    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
-    uuids = set(result.json()["accessible_host_uuids"])
+    result = client.get(f"{api_prefix}/lifecycle/host-uuids")
+    uuids = set(result.json()["data"])
 
     assert result.status_code == 200
     assert uuids == {UNGROUPED_HOST}
@@ -191,8 +196,8 @@ def test_accessible_host_uuids_ungrouped_and_grouped(api_prefix, client):
     """None means 'ungrouped', and is combined with a real group id."""
     _allow(client, {None, GROUP_ONE})
 
-    result = client.get(f"{api_prefix}/lifecycle/host_uuids")
-    uuids = set(result.json()["accessible_host_uuids"])
+    result = client.get(f"{api_prefix}/lifecycle/host-uuids")
+    uuids = set(result.json()["data"])
 
     assert result.status_code == 200
     assert uuids == {UNGROUPED_HOST, GROUP_ONE_HOST}

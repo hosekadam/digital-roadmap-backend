@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncResult
 
 from roadmap.common import query_accessible_host_uuids
+from roadmap.models import Meta
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -22,11 +23,12 @@ router = APIRouter(
 class AccessibleHostUuidsResponse(BaseModel):
     """Host UUIDs the caller is permitted to read from host inventory."""
 
-    accessible_host_uuids: list[UUID]
+    meta: Meta
+    data: list[UUID]
 
 
 @router.get(
-    "/host_uuids",
+    "/host-uuids",
     summary="Host UUIDs the caller is permitted to read",
     response_model=AccessibleHostUuidsResponse,
 )
@@ -43,4 +45,4 @@ async def get_accessible_host_uuids(
 
     # The stream yields one row per host, and each row is just the id.
     uuids = [row["id"] async for row in hosts.mappings()]
-    return AccessibleHostUuidsResponse(accessible_host_uuids=uuids)
+    return AccessibleHostUuidsResponse(meta=Meta(count=len(uuids), total=len(uuids)), data=uuids)
