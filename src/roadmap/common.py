@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import sys
 import textwrap
 import typing as t
 import urllib.parse
@@ -439,6 +440,34 @@ def _build_host_uuids_query(host_groups: t.Collection[str | None] = ()) -> str:
     return _HOST_UUIDS_QUERY + _host_groups_filter(host_groups) + _HOST_UUIDS_ORDER
 
 
+class _DatabaseErrorTrace(Exception):
+    """Stand-in recorded when a database query fails.
+
+    The message is the original exception class name, and the traceback is the
+    original stack. SQLAlchemy's own text is omitted because it includes the
+    SQL statement and bound parameter values.
+    """
+
+
+def _log_database_error(message: str) -> None:
+    """Log a database failure and its stack, without SQL or parameter values."""
+    exc = sys.exception()
+    if exc is None:
+        logger.error(message, extra={"error_type": "db_query_failure"})
+        return
+
+    # logger.exception would format the SQLAlchemy error, which embeds the
+    # statement and parameters. Keep the stack frames and the exception class.
+    redacted = _DatabaseErrorTrace(type(exc).__name__)
+    redacted.__traceback__ = exc.__traceback__
+    redacted.__suppress_context__ = True
+    logger.error(
+        message,
+        exc_info=(type(redacted), redacted, redacted.__traceback__),
+        extra={"error_type": "db_query_failure"},
+    )
+
+
 def host_inventory_query(include_packages: bool = True) -> t.Callable[..., AsyncGenerator[AsyncResult[t.Any]]]:
     """Build a FastAPI dependency that reads this org's hosts.
 
@@ -500,8 +529,8 @@ def host_inventory_query(include_packages: bool = True) -> t.Callable[..., Async
             )
             yield result
         except (DBAPIError, SQLAlchemyError):
-            logger.error("Database error querying host inventory", extra={"error_type": "db_query_failure"})
-            raise HTTPException(status_code=500, detail="Error querying host inventory")
+            _log_database_error("Database error querying host inventory")
+            raise HTTPException(status_code=500, detail="Error querying host inventory") from None
 
     return query_host_inventory
 
@@ -562,8 +591,8 @@ async def query_host_inventory_by_ids(
             },
         )
     except (DBAPIError, SQLAlchemyError):
-        logger.error("Database error querying host inventory", extra={"error_type": "db_query_failure"})
-        raise HTTPException(status_code=500, detail="Error querying host inventory")
+        _log_database_error("Database error querying host inventory")
+        raise HTTPException(status_code=500, detail="Error querying host inventory") from None
 
 
 async def query_accessible_host_uuids(
@@ -599,8 +628,8 @@ async def query_accessible_host_uuids(
         )
         yield result
     except (DBAPIError, SQLAlchemyError):
-        logger.error("Database error listing host UUIDs", extra={"error_type": "db_query_failure"})
-        raise HTTPException(status_code=500, detail="Error querying host inventory")
+        _log_database_error("Database error listing host UUIDs")
+        raise HTTPException(status_code=500, detail="Error querying host inventory") from None
 
 
 # Product IDs for lifecycle type classification.
@@ -911,8 +940,8 @@ async def query_rhel_systems(
         data_result = await session.execute(text(data_query), params)
         rows = data_result.mappings().all()
     except (DBAPIError, SQLAlchemyError):
-        logger.error("Database error querying RHEL systems", extra={"error_type": "db_query_failure"})
-        raise HTTPException(status_code=500, detail="Error querying host inventory")
+        _log_database_error("Database error querying RHEL systems")
+        raise HTTPException(status_code=500, detail="Error querying host inventory") from None
 
     systems = [
         SystemInfo(

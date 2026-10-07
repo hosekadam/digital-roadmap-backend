@@ -1,4 +1,5 @@
 import json
+import traceback
 
 from contextlib import nullcontext
 from datetime import date
@@ -121,28 +122,52 @@ async def test_query_host_inventory_dev_org_id(base_args, org_id, expected):
     assert len(results) > expected
 
 
-async def test_query_host_inventory_database_error(base_args, mocker):
-    """Test that database errors are caught and converted to HTTPException"""
+def _assert_safe_database_log(caplog, message: str, frame: str, secrets: tuple[str, ...]) -> None:
+    record = next(record for record in caplog.records if record.message == message)
+    assert record.error_type == "db_query_failure"
+    assert record.exc_info is not None
+    formatted = "".join(traceback.format_exception(*record.exc_info))
+    assert frame in formatted
+    assert record.exc_info[1].args == ("DBAPIError",)
+    for secret in secrets:
+        assert secret not in formatted
+        assert secret not in caplog.text
+
+
+async def test_query_host_inventory_database_error(base_args, mocker, caplog):
+    """A database failure becomes a 500 and keeps a stack without the SQL text."""
+    statement = "SELECT secret_inventory WHERE org_id = :org_id"
     mocker.patch.object(
         base_args["session"],
         "stream",
-        side_effect=DBAPIError("Database connection timeout", None, None),
+        side_effect=DBAPIError(statement, {"org_id": "sensitive-org"}, Exception("driver saw sensitive-org")),
     )
 
-    with pytest.raises(HTTPException, match="Error querying host inventory"):
+    with pytest.raises(HTTPException, match="Error querying host inventory") as exc_info:
         await anext(query_host_inventory(**base_args))
+
+    assert exc_info.value.__suppress_context__ is True
+
+    _assert_safe_database_log(
+        caplog,
+        "Database error querying host inventory",
+        "query_host_inventory",
+        (statement, "sensitive-org"),
+    )
 
 
 @pytest.mark.parametrize("include_packages", (True, False))
 async def test_query_host_inventory_by_ids_database_error(include_packages, caplog):
     """Both host-scoped query forms return a safe 500 when inventory is unavailable."""
     host_id = UUID("a77a8458-3593-11f0-8426-5e43c8b8aa2f")
+    org_id = "sensitive-org"
+    statement = "query with sensitive host id"
     session = AsyncMock()
-    session.stream.side_effect = DBAPIError("query with sensitive host id", None, None)
+    session.stream.side_effect = DBAPIError(statement, {"org_id": org_id, "host_ids": [host_id]}, Exception(org_id))
 
     with pytest.raises(HTTPException) as exc_info:
         await query_host_inventory_by_ids(
-            org_id="sensitive-org",
+            org_id=org_id,
             session=session,
             settings=Settings(dev=False),
             host_groups=set(),
@@ -152,12 +177,14 @@ async def test_query_host_inventory_by_ids_database_error(include_packages, capl
 
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == "Error querying host inventory"
+    assert exc_info.value.__suppress_context__ is True
     assert session.stream.await_count == 1
-    record = next(record for record in caplog.records if record.message == "Database error querying host inventory")
-    assert record.error_type == "db_query_failure"
-    assert record.exc_info is None
-    assert "sensitive-org" not in caplog.text
-    assert "sensitive host id" not in caplog.text
+    _assert_safe_database_log(
+        caplog,
+        "Database error querying host inventory",
+        "query_host_inventory_by_ids",
+        (statement, org_id, str(host_id)),
+    )
 
 
 def test_build_host_inventory_query_includes_packages_by_default():

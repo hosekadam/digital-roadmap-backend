@@ -1,3 +1,5 @@
+import traceback
+
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 
@@ -198,14 +200,16 @@ def test_accessible_host_uuids_ungrouped_and_grouped(api_prefix, client):
 
 
 async def test_query_accessible_host_uuids_database_error(caplog):
-    """A database failure while listing ids becomes a 500."""
+    """A database failure while listing ids becomes a 500 and keeps a redacted stack."""
+    org_id = "sensitive-org"
+    statement = "sensitive host id"
     session = AsyncMock()
-    session.stream = AsyncMock(side_effect=DBAPIError("sensitive host id", None, None))
+    session.stream = AsyncMock(side_effect=DBAPIError(statement, {"org_id": org_id}, Exception(org_id)))
 
     with pytest.raises(HTTPException, match="Error querying host inventory") as exc_info:
         await anext(
             query_accessible_host_uuids(
-                org_id="sensitive-org",
+                org_id=org_id,
                 session=session,
                 settings=Settings(dev=False),
                 host_groups=set(),
@@ -213,8 +217,14 @@ async def test_query_accessible_host_uuids_database_error(caplog):
         )
 
     assert exc_info.value.status_code == 500
+    assert exc_info.value.__suppress_context__ is True
     record = next(record for record in caplog.records if record.message == "Database error listing host UUIDs")
     assert record.error_type == "db_query_failure"
-    assert record.exc_info is None
-    assert "sensitive-org" not in caplog.text
-    assert "sensitive host id" not in caplog.text
+    assert record.exc_info is not None
+    formatted = "".join(traceback.format_exception(*record.exc_info))
+    assert "query_accessible_host_uuids" in formatted
+    assert record.exc_info[1].args == ("DBAPIError",)
+    assert statement not in formatted
+    assert org_id not in formatted
+    assert statement not in caplog.text
+    assert org_id not in caplog.text
