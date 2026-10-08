@@ -219,9 +219,11 @@ class PaginatedSystemsResponse(BaseModel):
 
 
 class HostIdsRequest(BaseModel):
-    """Host ids to read. The caller must also be permitted to see them."""
+    """Host ids to read. The caller chooses how many and must be permitted to see them."""
 
-    host_ids: list[UUID] = Field(min_length=1, max_length=10_000)
+    host_ids: list[UUID] = Field(
+        description="Host UUIDs to include. Any number of ids is accepted, including none.",
+    )
 
 
 class ReleaseModel(BaseModel):

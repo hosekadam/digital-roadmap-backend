@@ -37,8 +37,21 @@ async def get_relevant_rhel_for_hosts(
 
     Same payload as the v1 relevant RHEL endpoint. The inventory query is
     limited to these ids and to the groups this caller may read. Ids the
-    caller cannot read are omitted. Only the OS version and installed products
-    are read; package columns are not.
+    caller cannot read are omitted. The query reads host IDs, display names,
+    OS fields (including os_release), and installed products, but not packages
+    or DNF modules.
+
+    With related=true, related versions are calculated for the hosts in this
+    request. A version returned as related may be installed on a host left out
+    of the request; including that host leaves the version out of the related
+    set and returns it on that host's installed lifecycle row. Each related
+    row comes from one lifecycle record for that version and always uses
+    lifecycle type mainline, so its identity stays the same across batches.
+    Installed lifecycle types stay on their own rows. To match a request for
+    all accessible hosts when processing batches, merge installed rows that
+    share an OS name, version, and lifecycle type, counting each host once.
+    Drop a related version when any batch has that version installed, then
+    recalculate metadata. Concatenating responses is not enough.
     """
     systems = await query_host_inventory_by_ids(
         org_id=org_id,

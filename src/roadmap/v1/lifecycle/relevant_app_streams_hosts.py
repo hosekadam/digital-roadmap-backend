@@ -39,6 +39,17 @@ async def get_relevant_app_streams_for_hosts(
     Same payload as the v1 relevant app streams endpoint. The inventory query
     is limited to these ids and to the groups this caller may read. Ids the
     caller cannot read are omitted.
+
+    With related=true, related streams are calculated for the hosts in this
+    request. A stream returned as related may be installed on a host left out
+    of the request; including that host can return it as installed instead.
+    A related row takes its name from the installed stream that produced it,
+    so the same related stream can have a different name in another batch.
+    When processing batches, merge installed rows, counting each host once,
+    and collect related rows by stream identity. Drop a related row if that
+    stream is installed in any batch, then recalculate metadata. Related row
+    names may still differ from a single request for all accessible hosts.
+    Concatenating responses is not enough.
     """
     systems = await query_host_inventory_by_ids(
         org_id=org_id,

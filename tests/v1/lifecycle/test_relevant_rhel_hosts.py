@@ -1,6 +1,5 @@
 from datetime import date
 from unittest.mock import AsyncMock
-from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy.exc import DBAPIError
@@ -319,7 +318,8 @@ def test_relevant_rhel_for_hosts_database_error(api_prefix, client):
     session.stream.assert_awaited_once()
 
 
-def test_relevant_rhel_for_hosts_rejects_empty_list(api_prefix, client):
+def test_relevant_rhel_for_hosts_accepts_empty_list(api_prefix, client):
+    """An empty id list is valid and matches no hosts."""
     _allow(client, set())
 
     result = client.post(
@@ -327,16 +327,5 @@ def test_relevant_rhel_for_hosts_rejects_empty_list(api_prefix, client):
         json={"host_ids": []},
     )
 
-    assert result.status_code == 422
-
-
-def test_relevant_rhel_for_hosts_rejects_more_than_10k_ids(api_prefix, client):
-    _allow(client, set())
-    host_ids = [str(uuid4()) for _ in range(10_001)]
-
-    result = client.post(
-        f"{api_prefix}/relevant/lifecycle/rhel/hosts",
-        json={"host_ids": host_ids},
-    )
-
-    assert result.status_code == 422
+    assert result.status_code == 200, result.text
+    assert result.json() == {"meta": {"count": 0, "total": 0}, "data": []}
