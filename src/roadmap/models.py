@@ -218,6 +218,14 @@ class PaginatedSystemsResponse(BaseModel):
     data: list[SystemInfo]
 
 
+class HostIdsRequest(BaseModel):
+    """Host ids to read. The caller chooses how many and must be permitted to see them."""
+
+    host_ids: list[UUID] = Field(
+        description="Host UUIDs to include. Any number of ids is accepted, including none.",
+    )
+
+
 class ReleaseModel(BaseModel):
     major: int = Field(gt=8, le=10, description="Major version number, e.g., 7 in version 7.0")
     minor: int = Field(ge=0, le=100, description="Minor version number, e.g., 0 in version 7.0")

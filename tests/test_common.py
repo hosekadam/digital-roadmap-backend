@@ -1,9 +1,11 @@
 import json
+import traceback
 
 from contextlib import nullcontext
 from datetime import date
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
+from uuid import UUID
 
 import httpx
 import pytest
@@ -21,6 +23,7 @@ from roadmap.common import ensure_date
 from roadmap.common import get_allowed_host_groups
 from roadmap.common import get_lifecycle_type
 from roadmap.common import query_host_inventory
+from roadmap.common import query_host_inventory_by_ids
 from roadmap.common import query_host_inventory_without_packages
 from roadmap.common import query_rbac
 from roadmap.common import rhel_major_minor
@@ -119,16 +122,69 @@ async def test_query_host_inventory_dev_org_id(base_args, org_id, expected):
     assert len(results) > expected
 
 
-async def test_query_host_inventory_database_error(base_args, mocker):
-    """Test that database errors are caught and converted to HTTPException"""
+def _assert_safe_database_log(caplog, message: str, frame: str, secrets: tuple[str, ...]) -> None:
+    record = next(record for record in caplog.records if record.message == message)
+    assert record.error_type == "db_query_failure"
+    assert record.exc_info is not None
+    formatted = "".join(traceback.format_exception(*record.exc_info))
+    assert frame in formatted
+    assert record.exc_info[1].args == ("DBAPIError",)
+    for secret in secrets:
+        assert secret not in formatted
+        assert secret not in caplog.text
+
+
+async def test_query_host_inventory_database_error(base_args, mocker, caplog):
+    """A database failure becomes a 500 and keeps a stack without the SQL text."""
+    statement = "SELECT secret_inventory WHERE org_id = :org_id"
     mocker.patch.object(
         base_args["session"],
         "stream",
-        side_effect=DBAPIError("Database connection timeout", None, None),
+        side_effect=DBAPIError(statement, {"org_id": "sensitive-org"}, Exception("driver saw sensitive-org")),
     )
 
-    with pytest.raises(HTTPException, match="Error querying host inventory"):
+    with pytest.raises(HTTPException, match="Error querying host inventory") as exc_info:
         await anext(query_host_inventory(**base_args))
+
+    assert exc_info.value.__suppress_context__ is True
+
+    _assert_safe_database_log(
+        caplog,
+        "Database error querying host inventory",
+        "query_host_inventory",
+        (statement, "sensitive-org"),
+    )
+
+
+@pytest.mark.parametrize("include_packages", (True, False))
+async def test_query_host_inventory_by_ids_database_error(include_packages, caplog):
+    """Both host-scoped query forms return a safe 500 when inventory is unavailable."""
+    host_id = UUID("a77a8458-3593-11f0-8426-5e43c8b8aa2f")
+    org_id = "sensitive-org"
+    statement = "query with sensitive host id"
+    session = AsyncMock()
+    session.stream.side_effect = DBAPIError(statement, {"org_id": org_id, "host_ids": [host_id]}, Exception(org_id))
+
+    with pytest.raises(HTTPException) as exc_info:
+        await query_host_inventory_by_ids(
+            org_id=org_id,
+            session=session,
+            settings=Settings(dev=False),
+            host_groups=set(),
+            host_ids=[host_id],
+            include_packages=include_packages,
+        )
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "Error querying host inventory"
+    assert exc_info.value.__suppress_context__ is True
+    assert session.stream.await_count == 1
+    _assert_safe_database_log(
+        caplog,
+        "Database error querying host inventory",
+        "query_host_inventory_by_ids",
+        (statement, org_id, str(host_id)),
+    )
 
 
 def test_build_host_inventory_query_includes_packages_by_default():
@@ -172,6 +228,64 @@ def test_build_host_inventory_query_host_group_filters(host_groups, expected, in
 
     for item in expected:
         assert item in query
+
+
+def test_build_host_inventory_query_omits_host_ids_by_default():
+    """The unscoped inventory query does not filter on host id."""
+    query = _build_host_inventory_query()
+
+    assert ":host_ids" not in query
+
+
+def test_build_host_inventory_query_host_ids_are_bound():
+    """Requested host ids are a single bound parameter, not SQL text."""
+    host_id = UUID("a77a8458-3593-11f0-8426-5e43c8b8aa2f")
+    query = _build_host_inventory_query(host_ids=[host_id])
+
+    assert "h.id = ANY(:host_ids)" in query
+    assert str(host_id) not in query
+    assert "installed_packages" in query
+
+
+def test_build_host_inventory_query_host_ids_without_packages():
+    """An id-scoped slim query keeps products and drops the package columns."""
+    host_id = UUID("a77a8458-3593-11f0-8426-5e43c8b8aa2f")
+    query = _build_host_inventory_query(host_ids=[host_id], include_packages=False)
+
+    assert ":host_ids" in query
+    assert str(host_id) not in query
+    assert "installed_products" in query
+    assert "installed_packages" not in query
+    assert "dnf_modules" not in query
+
+
+def test_build_host_inventory_query_empty_host_ids_still_filters():
+    """An empty id list matches no hosts. It does not fall back to every host."""
+    query = _build_host_inventory_query(host_ids=[])
+
+    assert ":host_ids" in query
+
+
+@pytest.mark.parametrize(
+    ("host_groups", "expected"),
+    (
+        ({"aec18a86-3593-11f0-8426-5e43c8b8aa2f"}, (":host_groups",)),
+        ({None}, ("ungrouped",)),
+        ({None, "aec18a86-3593-11f0-8426-5e43c8b8aa2f"}, ("ungrouped", ":host_groups")),
+    ),
+)
+def test_build_host_inventory_query_host_ids_keep_group_filter(host_groups, expected):
+    """The id filter is added beside the group filter. It does not replace it."""
+    host_id = UUID("a77a8458-3593-11f0-8426-5e43c8b8aa2f")
+    query = _build_host_inventory_query(host_groups=host_groups, host_ids=[host_id])
+
+    assert ":host_ids" in query
+    assert str(host_id) not in query
+    for item in expected:
+        assert item in query
+    for group_id in host_groups:
+        if group_id is not None:
+            assert group_id not in query
 
 
 async def test_query_host_inventory_without_packages(base_args):
