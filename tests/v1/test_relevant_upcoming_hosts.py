@@ -339,3 +339,47 @@ def test_relevant_upcoming_for_hosts_database_error(api_prefix, client):
     assert result.status_code == 500
     assert result.json() == {"detail": "Error querying host inventory"}
     session.stream.assert_awaited_once()
+
+
+def test_relevant_upcoming_for_hosts_database_error_while_fetching(api_prefix, client):
+    """A failure while reading rows, after stream() has returned, is still a safe 500."""
+    _allow(client, set())
+
+    class _Rows:
+        def __init__(self):
+            self._sent = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not self._sent:
+                self._sent = True
+                return {
+                    "id": RHEL_10_HOST,
+                    "display_name": "rhel-10-host",
+                    "os_major": 10,
+                    "os_minor": 0,
+                    "os_release": "10.0",
+                    "packages": ["nodejs-1:22.0.0-1.el10.x86_64"],
+                }
+            raise DBAPIError("SELECT secret_inventory WHERE org_id = :org_id", {"org_id": "sensitive-org"}, None)
+
+    class _Result:
+        def yield_per(self, batch_size):
+            return self
+
+        def mappings(self):
+            return _Rows()
+
+    session = AsyncMock()
+    session.stream = AsyncMock(return_value=_Result())
+    client.app.dependency_overrides[get_db] = lambda: session
+
+    result = _post(client, api_prefix, [RHEL_10_HOST])
+
+    assert result.status_code == 500
+    assert result.json() == {"detail": "Error querying host inventory"}
+    assert "secret_inventory" not in result.text
+    assert "sensitive-org" not in result.text
+    session.stream.assert_awaited_once()

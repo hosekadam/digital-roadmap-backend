@@ -2,10 +2,14 @@ import typing as t
 
 from fastapi import APIRouter
 from fastapi import Depends
+from fastapi import HTTPException
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from roadmap.common import decode_header
 from roadmap.common import get_allowed_host_groups
+from roadmap.common import log_database_error
 from roadmap.common import query_host_inventory_by_ids
 from roadmap.config import Settings
 from roadmap.database import get_db
@@ -61,6 +65,14 @@ async def get_relevant_upcoming_for_hosts(
         host_ids=body.host_ids,
         include_packages=True,
     )
-    packages = await packages_by_system(org_id, systems)
+    try:
+        packages = await packages_by_system(org_id, systems)
+    except (DBAPIError, SQLAlchemyError):
+        log_database_error("Database error querying host inventory")
+        raise HTTPException(
+            status_code=500,
+            detail="Error querying host inventory",
+        ) from None
+
     data = get_upcoming_data_with_hosts(packages, settings, all)
     return await get_upcoming_relevant(data, all)
